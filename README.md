@@ -7,8 +7,8 @@ This application monitors pre-order board games from BoardGamesIndia.com and sen
 - Daily monitoring of pre-order board games
 - Email notifications for new and removed pre-orders
 - Web interface to check if the service is running
-- Free hosting on Render.com
 - Email notifications via Amazon SES
+- Serverless deployment using AWS SAM
 
 ## Setup
 
@@ -33,17 +33,18 @@ Note: Before using Amazon SES, you need to:
 3. Request production access if you're not in the SES sandbox
 4. Create IAM user with SES permissions and get access keys
 
-## Deployment on Render.com
+## Deployment with AWS SAM
 
-1. Create a new Web Service on Render.com
-2. Connect your GitHub repository
-3. Set the following environment variables in Render:
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
-   - `AWS_REGION`
-   - `SES_SENDER_EMAIL`
-   - `RECEIVER_EMAIL`
-4. Deploy the service
+1. Install AWS SAM CLI if you haven't already
+2. Build the SAM application:
+   ```bash
+   sam build
+   ```
+3. Deploy the application:
+   ```bash
+   sam deploy --guided
+   ```
+4. Follow the prompts to configure your deployment
 
 The application will automatically check for updates every day at 9:00 AM and send email notifications if there are any changes in the pre-order list.
 
