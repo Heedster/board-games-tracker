@@ -1,12 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Board Games Pre-Order Tracker
+Description: Board Games Tracker
 
 Resources:
   BoardGamesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: board-games-preorders
+      TableName: board-games-tracker
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -51,7 +51,7 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 9 * * ? *)
-            Description: Daily check for pre-order updates at 9:00 AM UTC
+            Description: Daily check for updates at 9:00 AM UTC
 
 Outputs:
   BoardGamesTrackerFunction:

@@ -12,7 +12,8 @@ load_dotenv()
 
 # Configuration
 PRE_ORDERS_URL = "https://www.boardgamesindia.com/pre-orders?fq=1"
-DYNAMODB_TABLE_NAME = "board-games-preorders"
+NEW_ARRIVALS_URL = "https://www.boardgamesindia.com/new-arrivals?fq=1"
+DYNAMODB_TABLE_NAME = "board-games-tracker"
 
 def send_email(subject, body_html):
     # Create a new SES resource
@@ -50,9 +51,9 @@ def send_email(subject, body_html):
         raise
 
 def send_error_notification(error_message):
-    subject = "Board Games Pre-Order Monitor Error"
+    subject = "Board Games Monitor Error"
     body = f"""
-    <h2>Board Games Pre-Order Monitor Error</h2>
+    <h2>Board Games Monitor Error</h2>
     <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     <p>Error Message: {error_message}</p>
     <p>Please check the website and the monitor service.</p>
@@ -60,13 +61,13 @@ def send_error_notification(error_message):
     
     send_email(subject, body)
 
-class PreOrderGameFetcher:
-    def __init__(self, url=PRE_ORDERS_URL):
+class GameFetcher:
+    def __init__(self, url):
         self.url = url
 
     def fetch_games(self):
         try:
-            print("Fetching webpage...")
+            print(f"Fetching webpage: {self.url}")
             response = requests.get(self.url)
             response.raise_for_status()
             print(f"Response status: {response.status_code}")
@@ -130,15 +131,19 @@ class PreOrderGameFetcher:
             return games
             
         except Exception as e:
-            error_msg = f"Error fetching pre-order games: {str(e)}"
+            error_msg = f"Error fetching games: {str(e)}"
             print(error_msg)
             raise
 
 def get_pre_order_games():
-    fetcher = PreOrderGameFetcher()
+    fetcher = GameFetcher(PRE_ORDERS_URL)
     return fetcher.fetch_games()
 
-def load_previous_games():
+def get_new_arrivals():
+    fetcher = GameFetcher(NEW_ARRIVALS_URL)
+    return fetcher.fetch_games()
+
+def load_previous_data():
     # Use DynamoDB to store the previous games list
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(os.getenv('DYNAMODB_TABLE_NAME'))
@@ -150,13 +155,13 @@ def load_previous_games():
             }
         )
         if 'Item' in response:
-            return response['Item']['games']
-        return []
+            return response['Item']
+        return {'pre_orders': [], 'new_arrivals': []}
     except Exception as e:
-        print(f"Error loading previous games: {str(e)}")
-        return []
+        print(f"Error loading previous data: {str(e)}")
+        return {'pre_orders': [], 'new_arrivals': []}
 
-def save_current_games(games):
+def save_current_data(pre_orders, new_arrivals):
     # Use DynamoDB to store the current games list
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(os.getenv('DYNAMODB_TABLE_NAME'))
@@ -165,31 +170,45 @@ def save_current_games(games):
         table.put_item(
             Item={
                 'id': 'current_games',
-                'games': games,
+                'pre_orders': pre_orders,
+                'new_arrivals': new_arrivals,
                 'last_updated': datetime.now().isoformat()
             }
         )
     except Exception as e:
-        print(f"Error saving current games: {str(e)}")
+        print(f"Error saving current data: {str(e)}")
         raise
 
-def send_email_notification(new_games, removed_games):
-    new_count = len(new_games)
-    removed_count = len(removed_games)
+def send_email_notification(pre_order_updates, new_arrival_updates):
+    new_pre_orders = pre_order_updates['new']
+    removed_pre_orders = pre_order_updates['removed']
+    new_arrivals = new_arrival_updates['new']
+    removed_arrivals = new_arrival_updates['removed']
     
-    subject = f"Board Games Pre-Order Update: {new_count} New, {removed_count} Removed"
+    subject = f"Board Games Update: {len(new_pre_orders)} New Pre-Orders, {len(removed_pre_orders)} Removed Pre-Orders, {len(new_arrivals)} New Arrivals"
+    
     body = f"""
-    <h2>Board Games Pre-Order Update</h2>
+    <h2>Board Games Update</h2>
     <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     
-    <h3>New Games Available for Pre-Order ({new_count}):</h3>
+    <h3>New Pre-Orders ({len(new_pre_orders)}):</h3>
     <ul>
-    {''.join([f'<li>{game["title"]} - {game["price"]}</li>' for game in new_games])}
+    {''.join([f'<li><a href="{game["url"]}">{game["title"]}</a> - {game["price"]}</li>' for game in new_pre_orders])}
     </ul>
     
-    <h3>Games No Longer Available for Pre-Order ({removed_count}):</h3>
+    <h3>Removed Pre-Orders ({len(removed_pre_orders)}):</h3>
     <ul>
-    {''.join([f'<li>{game["title"]} - {game["price"]}</li>' for game in removed_games])}
+    {''.join([f'<li>{game["title"]} - {game["price"]}</li>' for game in removed_pre_orders])}
+    </ul>
+    
+    <h3>New Arrivals ({len(new_arrivals)}):</h3>
+    <ul>
+    {''.join([f'<li><a href="{game["url"]}">{game["title"]}</a> - {game["price"]}</li>' for game in new_arrivals])}
+    </ul>
+    
+    <h3>Removed from New Arrivals ({len(removed_arrivals)}):</h3>
+    <ul>
+    {''.join([f'<li>{game["title"]} - {game["price"]}</li>' for game in removed_arrivals])}
     </ul>
     """
     
@@ -197,23 +216,41 @@ def send_email_notification(new_games, removed_games):
 
 def check_for_updates():
     """
-    Check for updates in pre-order games without sending notifications.
-    Returns a tuple of (current_games, new_games, removed_games)
+    Check for updates in both pre-order games and new arrivals without sending notifications.
+    Returns a tuple of (current_data, pre_order_updates, new_arrival_updates)
     """
     try:
-        current_games = get_pre_order_games()
-        previous_games = load_previous_games()
+        current_pre_orders = get_pre_order_games()
+        current_new_arrivals = get_new_arrivals()
+        previous_data = load_previous_data()
         
-        # Find new games
-        new_games = [game for game in current_games if game not in previous_games]
+        # Find pre-order updates
+        new_pre_orders = [game for game in current_pre_orders if game not in previous_data['pre_orders']]
+        removed_pre_orders = [game for game in previous_data['pre_orders'] if game not in current_pre_orders]
         
-        # Find removed games
-        removed_games = [game for game in previous_games if game not in current_games]
+        # Find new arrival updates
+        new_arrivals = [game for game in current_new_arrivals if game not in previous_data['new_arrivals']]
+        removed_arrivals = [game for game in previous_data['new_arrivals'] if game not in current_new_arrivals]
         
-        # Save current games for next comparison
-        save_current_games(current_games)
+        # Save current data for next comparison
+        save_current_data(current_pre_orders, current_new_arrivals)
         
-        return current_games, new_games, removed_games
+        current_data = {
+            'pre_orders': current_pre_orders,
+            'new_arrivals': current_new_arrivals
+        }
+        
+        pre_order_updates = {
+            'new': new_pre_orders,
+            'removed': removed_pre_orders
+        }
+        
+        new_arrival_updates = {
+            'new': new_arrivals,
+            'removed': removed_arrivals
+        }
+        
+        return current_data, pre_order_updates, new_arrival_updates
         
     except Exception as e:
         print(f"Error in check_for_updates: {str(e)}")
@@ -225,17 +262,20 @@ def process_updates_with_notification():
     Returns a dictionary with the results.
     """
     try:
-        current_games, new_games, removed_games = check_for_updates()
+        current_data, pre_order_updates, new_arrival_updates = check_for_updates()
         
-        if new_games or removed_games:
-            send_email_notification(new_games, removed_games)
+        if (pre_order_updates['new'] or pre_order_updates['removed'] or 
+            new_arrival_updates['new'] or new_arrival_updates['removed']):
+            send_email_notification(pre_order_updates, new_arrival_updates)
         
         return {
             'statusCode': 200,
             'body': json.dumps({
                 'message': 'Successfully checked for updates',
-                'new_games_count': len(new_games),
-                'removed_games_count': len(removed_games)
+                'new_pre_orders_count': len(pre_order_updates['new']),
+                'removed_pre_orders_count': len(pre_order_updates['removed']),
+                'new_arrivals_count': len(new_arrival_updates['new']),
+                'removed_arrivals_count': len(new_arrival_updates['removed'])
             })
         }
     except Exception as e:

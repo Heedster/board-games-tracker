@@ -1,11 +1,11 @@
-# Board Games Pre-Order Monitor
+# Board Games Monitor
 
-This application monitors pre-order board games from BoardGamesIndia.com and sends email notifications when there are changes in the available pre-orders.
+This application monitors pre-order board games and new arrivals from BoardGamesIndia.com and sends email notifications when there are changes in either list.
 
 ## Features
 
-- Daily monitoring of pre-order board games
-- Email notifications for new and removed pre-orders
+- Daily monitoring of pre-order board games and new arrivals
+- Email notifications for new and removed items in both categories
 - Web interface to check if the service is running
 - Email notifications via Amazon SES
 - Serverless deployment using AWS SAM
@@ -46,7 +46,7 @@ Note: Before using Amazon SES, you need to:
    ```
 4. Follow the prompts to configure your deployment
 
-The application will automatically check for updates every day at 9:00 AM and send email notifications if there are any changes in the pre-order list.
+The application will automatically check for updates every day at 9:00 AM and send email notifications if there are any changes in either the pre-order list or new arrivals.
 
 ## Local Development
 
