@@ -64,76 +64,99 @@ def send_error_notification(error_message):
 class GameFetcher:
     def __init__(self, url):
         self.url = url
+        self.base_url = url.split('?')[0]  # Remove query parameters for pagination
 
     def fetch_games(self):
-        try:
-            print(f"Fetching webpage: {self.url}")
-            response = requests.get(self.url)
-            response.raise_for_status()
-            print(f"Response status: {response.status_code}")
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            print(f"Page title: {soup.title.text if soup.title else 'No title found'}")
-            
-            games = []
-            # Find the main product grid
-            product_grid = soup.select_one('div.main-products.product-grid')
-            if not product_grid:
-                error_msg = "Could not find product grid on the webpage. The website structure might have changed."
-                print(error_msg)
-                raise Exception(error_msg)
+        all_games = []
+        page = 1
+        has_more_pages = True
+
+        while has_more_pages:
+            try:
+                # Construct the page URL with limit parameter
+                page_url = f"{self.base_url}?limit=100&fq=1&page={page}"
+                print(f"Fetching webpage: {page_url}")
                 
-            # Find all product thumbs within the grid
-            game_elements = product_grid.select('.product-thumb')
-            print(f"Found {len(game_elements)} products")
-            
-            for game in game_elements:
-                try:
-                    # Get the game title and URL
-                    name_element = game.select_one('.name a')
-                    if not name_element:
-                        continue
+                response = requests.get(page_url)
+                response.raise_for_status()
+                print(f"Response status: {response.status_code}")
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                print(f"Page title: {soup.title.text if soup.title else 'No title found'}")
+                
+                # Find the main product grid
+                product_grid = soup.select_one('div.main-products.product-grid')
+                if not product_grid:
+                    error_msg = "Could not find product grid on the webpage. The website structure might have changed."
+                    print(error_msg)
+                    raise Exception(error_msg)
+                    
+                # Find all product thumbs within the grid
+                game_elements = product_grid.select('.product-thumb')
+                print(f"Found {len(game_elements)} products on page {page}")
+                
+                if not game_elements:
+                    has_more_pages = False
+                    break
+                
+                for game in game_elements:
+                    try:
+                        # Get the game title and URL
+                        name_element = game.select_one('.name a')
+                        if not name_element:
+                            continue
+                            
+                        title = name_element.text.strip()
+                        url = name_element['href']
                         
-                    title = name_element.text.strip()
-                    url = name_element['href']
-                    
-                    # Get the price
-                    price = None
-                    price_new = game.select_one('.price-new')
-                    price_normal = game.select_one('.price-normal')
-                    
-                    if price_new:
-                        price = price_new.text.strip()
-                    elif price_normal:
-                        price = price_normal.text.strip()
-                    
-                    if not price:
-                        print(f"Warning: Could not find price for {title}")
+                        # Get the price
+                        price = None
+                        price_new = game.select_one('.price-new')
+                        price_normal = game.select_one('.price-normal')
+                        
+                        if price_new:
+                            price = price_new.text.strip()
+                        elif price_normal:
+                            price = price_normal.text.strip()
+                        
+                        if not price:
+                            print(f"Warning: Could not find price for {title}")
+                            continue
+                        
+                        # Get stock status
+                        stock_status = None
+                        stock_element = game.select_one('.preorder-stock')
+                        if stock_element:
+                            stock_status = stock_element.text.strip()
+                        
+                        all_games.append({
+                            'title': title,
+                            'price': price,
+                            'url': url,
+                            'stock_status': stock_status
+                        })
+                        
+                    except Exception as e:
+                        print(f"Error processing game: {str(e)}")
                         continue
-                    
-                    # Get stock status
-                    stock_status = None
-                    stock_element = game.select_one('.preorder-stock')
-                    if stock_element:
-                        stock_status = stock_element.text.strip()
-                    
-                    games.append({
-                        'title': title,
-                        'price': price,
-                        'url': url,
-                        'stock_status': stock_status
-                    })
-                    
-                except Exception as e:
-                    print(f"Error processing game: {str(e)}")
-                    continue
-            
-            return games
-            
-        except Exception as e:
-            error_msg = f"Error fetching games: {str(e)}"
-            print(error_msg)
-            raise
+                
+                # Check if there's a next page using the next link
+                pagination = soup.select_one('.pagination')
+                if pagination:
+                    next_link = pagination.select_one('a.next')
+                    has_more_pages = bool(next_link)
+                else:
+                    has_more_pages = False
+                
+                page += 1
+                
+            except Exception as e:
+                error_msg = f"Error fetching games on page {page}: {str(e)}"
+                print(error_msg)
+                raise
+        
+        print(f"Total games found across all pages: {len(all_games)}")
+        return all_games
 
 def get_pre_order_games():
     fetcher = GameFetcher(PRE_ORDERS_URL)
